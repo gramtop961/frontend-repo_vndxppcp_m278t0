@@ -10,6 +10,11 @@ function App() {
   const [newChild, setNewChild] = useState({ first_name: '', last_name: '', diagnosis: '' })
   const [newSession, setNewSession] = useState({ child_id: '', therapist_id: '', date: '', duration_minutes: 60, notes: '' })
 
+  const [showAuth, setShowAuth] = useState(false)
+  const [authMode, setAuthMode] = useState('login')
+  const [authForm, setAuthForm] = useState({ name: '', email: '', username: '', password: '', role: 'parent' })
+  const [currentUser, setCurrentUser] = useState(null)
+
   useEffect(() => {
     fetchInitial()
   }, [])
@@ -42,11 +47,77 @@ function App() {
     }
   }
 
+  const handleAuthSubmit = async (e) => {
+    e.preventDefault()
+    try {
+      if (authMode === 'signup') {
+        const res = await fetch(`${API}/auth/signup`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: authForm.name,
+            email: authForm.email,
+            username: authForm.username,
+            password: authForm.password,
+            role: authForm.role,
+          })
+        })
+        if (!res.ok) throw new Error('Signup failed')
+        const data = await res.json()
+        setCurrentUser({ id: data.id, name: data.name, role: data.role, username: authForm.username })
+        setShowAuth(false)
+      } else {
+        const res = await fetch(`${API}/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: authForm.username, password: authForm.password })
+        })
+        if (!res.ok) throw new Error('Login failed')
+        const data = await res.json()
+        setCurrentUser(data)
+        setShowAuth(false)
+      }
+    } catch (err) {
+      alert(err.message)
+    }
+  }
+
+  const logout = () => setCurrentUser(null)
+
+  const filteredSessions = sessions.filter(s => {
+    if (!currentUser) return true
+    if (currentUser.role === 'therapist') return s.therapist_id === currentUser.id
+    if (currentUser.role === 'parent') {
+      const myChildrenIds = children.filter(c => c.parent_ids?.includes?.(currentUser.id)).map(c => c.id)
+      return myChildrenIds.includes(s.child_id)
+    }
+    return true
+  })
+
+  const filteredChildren = children.filter(c => {
+    if (!currentUser) return true
+    if (currentUser.role === 'therapist') return c.therapist_ids?.includes?.(currentUser.id)
+    if (currentUser.role === 'parent') return c.parent_ids?.includes?.(currentUser.id)
+    return true
+  })
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 to-cyan-50">
       <header className="bg-white/80 backdrop-blur sticky top-0 z-10 border-b">
         <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
           <h1 className="text-xl font-bold text-gray-800">Therapy Center</h1>
+          <div className="flex items-center gap-2">
+            {currentUser ? (
+              <div className="flex items-center gap-3">
+                <span className="text-sm text-gray-600">Hi, {currentUser.name} <span className="ml-2 px-2 py-0.5 rounded bg-indigo-100 text-indigo-700 text-xs">{currentUser.role}</span></span>
+                <button onClick={logout} className="px-3 py-1 rounded hover:bg-gray-100 text-sm">Logout</button>
+              </div>
+            ) : (
+              <button onClick={() => {setShowAuth(true); setAuthMode('login')}} className="px-3 py-1 rounded bg-indigo-600 text-white text-sm">Login</button>
+            )}
+          </div>
+        </div>
+        <div className="max-w-5xl mx-auto px-4 pb-3">
           <nav className="space-x-2 text-sm">
             <button onClick={() => setView('dashboard')} className={`px-3 py-1 rounded ${view==='dashboard'?'bg-indigo-600 text-white':'hover:bg-gray-100'}`}>Dashboard</button>
             <button onClick={() => setView('children')} className={`px-3 py-1 rounded ${view==='children'?'bg-indigo-600 text-white':'hover:bg-gray-100'}`}>Children</button>
@@ -62,7 +133,7 @@ function App() {
           <section className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="bg-white rounded-lg shadow p-4">
               <p className="text-sm text-gray-500">Children</p>
-              <p className="text-3xl font-bold">{children.length}</p>
+              <p className="text-3xl font-bold">{filteredChildren.length}</p>
             </div>
             <div className="bg-white rounded-lg shadow p-4">
               <p className="text-sm text-gray-500">Users</p>
@@ -70,7 +141,7 @@ function App() {
             </div>
             <div className="bg-white rounded-lg shadow p-4">
               <p className="text-sm text-gray-500">Sessions</p>
-              <p className="text-3xl font-bold">{sessions.length}</p>
+              <p className="text-3xl font-bold">{filteredSessions.length}</p>
             </div>
             <div className="bg-white rounded-lg shadow p-4">
               <p className="text-sm text-gray-500">Therapists</p>
@@ -102,7 +173,7 @@ function App() {
             <div className="bg-white rounded-lg shadow p-4">
               <h2 className="text-lg font-semibold mb-3">Children</h2>
               <ul className="divide-y">
-                {children.map(c=> (
+                {filteredChildren.map(c=> (
                   <li key={c.id} className="py-2">
                     <p className="font-medium">{c.first_name} {c.last_name}</p>
                     <p className="text-sm text-gray-500">{c.diagnosis || 'No diagnosis'}</p>
@@ -150,7 +221,7 @@ function App() {
             <div className="bg-white rounded-lg shadow p-4">
               <h2 className="text-lg font-semibold mb-3">Recent Sessions</h2>
               <ul className="divide-y">
-                {sessions.map(s=> (
+                {filteredSessions.map(s=> (
                   <li key={s.id} className="py-2">
                     <p className="font-medium">{children.find(c=>c.id===s.child_id)?.first_name} - {users.find(u=>u.id===s.therapist_id)?.name}</p>
                     <p className="text-sm text-gray-500">{s.date} • {s.duration_minutes} min</p>
@@ -163,7 +234,12 @@ function App() {
 
         {view === 'users' && (
           <section className="bg-white rounded-lg shadow p-4">
-            <h2 className="text-lg font-semibold mb-3">Users</h2>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-lg font-semibold">Users</h2>
+              {!currentUser && (
+                <button onClick={() => {setShowAuth(true); setAuthMode('signup')}} className="px-3 py-1 rounded bg-green-600 text-white text-sm">Create account</button>
+              )}
+            </div>
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {users.map(u=> (
                 <div key={u.id} className="border rounded p-3">
@@ -176,6 +252,56 @@ function App() {
           </section>
         )}
       </main>
+
+      {showAuth && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
+            <div className="p-4 border-b flex items-center justify-between">
+              <h3 className="font-semibold">{authMode === 'login' ? 'Login' : 'Create Account'}</h3>
+              <button onClick={()=>setShowAuth(false)} className="text-gray-500 hover:text-gray-700">✕</button>
+            </div>
+            <form onSubmit={handleAuthSubmit} className="p-4 space-y-3">
+              {authMode === 'signup' && (
+                <>
+                  <div>
+                    <label className="block text-sm">Name</label>
+                    <input className="w-full border rounded px-3 py-2" value={authForm.name} onChange={e=>setAuthForm(v=>({...v, name:e.target.value}))} required />
+                  </div>
+                  <div>
+                    <label className="block text-sm">Email</label>
+                    <input type="email" className="w-full border rounded px-3 py-2" value={authForm.email} onChange={e=>setAuthForm(v=>({...v, email:e.target.value}))} required />
+                  </div>
+                </>
+              )}
+              <div>
+                <label className="block text-sm">Username</label>
+                <input className="w-full border rounded px-3 py-2" value={authForm.username} onChange={e=>setAuthForm(v=>({...v, username:e.target.value}))} required />
+              </div>
+              <div>
+                <label className="block text-sm">Password</label>
+                <input type="password" className="w-full border rounded px-3 py-2" value={authForm.password} onChange={e=>setAuthForm(v=>({...v, password:e.target.value}))} required />
+              </div>
+              {authMode === 'signup' && (
+                <div>
+                  <label className="block text-sm">Role</label>
+                  <select className="w-full border rounded px-3 py-2" value={authForm.role} onChange={e=>setAuthForm(v=>({...v, role:e.target.value}))}>
+                    <option value="parent">Parent</option>
+                    <option value="therapist">Therapist</option>
+                    <option value="donor">Donor</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                </div>
+              )}
+              <div className="flex items-center gap-2 pt-2">
+                <button type="submit" className="bg-indigo-600 text-white px-4 py-2 rounded">{authMode === 'login' ? 'Login' : 'Create'}</button>
+                <button type="button" onClick={() => setAuthMode(m => m === 'login' ? 'signup' : 'login')} className="text-sm text-indigo-700 hover:underline">
+                  {authMode === 'login' ? 'Create an account' : 'Have an account? Login'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
